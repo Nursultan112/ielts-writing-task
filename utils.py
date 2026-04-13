@@ -318,13 +318,16 @@ body{{background:transparent;}}
   }}
 
   /* ── Автосақтау ── */
+  let lastSavedText = '';
   function startAutoSave() {{
     if (asID) return;
     asID = setInterval(async ()=>{{
       const t = essay.value.trim();
-      if (!t||annulled) return;
+      if (!t || annulled) return;
+      if (t === lastSavedText) return; // мәтін өзгермесе — жібермейміз
       const wc = (t.match(/\b\w+\b/g)||[]).length;
       const ok = await upsert(t, wc);
+      if (ok) lastSavedText = t;
       saveEl.textContent = ok
         ? '💾 '+new Date().toLocaleTimeString()
         : '⚠️ Желі қатесі';
