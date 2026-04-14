@@ -145,16 +145,9 @@ def show_result_page(result: dict, essay_text: str, task_type: str) -> None:
         st.text_area("", value=essay_text, height=220, disabled=True,
                      label_visibility="collapsed",
                      key=f"saved_{task_type.replace(' ','_')}")
-        import streamlit.components.v1 as _c
-        _c.html(f"""
-        <button onclick="navigator.clipboard.writeText({json.dumps(essay_text)}).then(()=>{{
-            this.textContent='✅ Көшірілді!';this.style.background='#639922';
-            setTimeout(()=>{{this.textContent='📋 Мәтінді көшіру';
-            this.style.background='#1E88E5';}},2500);}})"
-        style="width:100%;padding:10px;background:#1E88E5;color:#fff;
-               border:none;border-radius:8px;font-size:14px;cursor:pointer;margin-top:4px;">
-            📋 Мәтінді көшіру
-        </button>""", height=55)
+        if st.button("📋 Мәтінді көшіру", key=f"copy_{task_type.replace(' ','_')}"):
+            st.write(f"```\n{essay_text}\n```")
+            st.info("☝️ Жоғарыдағы мәтінді қолмен таңдап көшіріңіз (Ctrl+A → Ctrl+C)")
 
 
 # ─────────────────────────────────────────
