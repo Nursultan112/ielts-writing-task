@@ -177,7 +177,8 @@ with tab1:
             word_count = d.get("word_count",0)
             draft_text = d.get("draft_text","")
             updated_at = (d.get("updated_at","") or "")[:19].replace("T"," ")
-            min_w      = 150
+            task_type  = d.get("task_type", "Task 1")
+            min_w      = 250 if task_type == "Task 2" else 150
             progress   = min(word_count / min_w, 1.0)
 
             if word_count >= 250:
@@ -460,7 +461,7 @@ with tab5:
                 started[n] = e.get("session_id","")
 
     checked_set = set(r.get("student_name","") for r in st.session_state["results"])
-    lost        = {n: sid for n, sid in started.items() if n not in checked_set}
+    lost        = {n: s_id for n, s_id in started.items() if n not in checked_set}
 
     if not lost:
         st.success("✅ Барлық оқушының жұмысы тексерілген!")
@@ -470,8 +471,8 @@ with tab5:
         draft_map = {d.get("session_id",""): d
                      for d in st.session_state["all_drafts"]}
 
-        for name, sid in sorted(lost.items()):
-            draft    = draft_map.get(sid)
+        for name, s_id in sorted(lost.items()):
+            draft    = draft_map.get(s_id)
             has_text = bool(draft and draft.get("draft_text","").strip())
             wc       = draft.get("word_count",0) if draft else 0
             upd      = (draft.get("updated_at","") or "")[:16] if draft else "—"
@@ -479,13 +480,13 @@ with tab5:
 
             with st.expander(f"👤 {name}  —  {status}"):
                 c1, c2 = st.columns(2)
-                c1.markdown(f"**Session ID:** `{sid}`")
+                c1.markdown(f"**Session ID:** `{s_id}`")
                 c2.markdown(f"**Соңғы сақтау:** {upd}")
 
                 if has_text:
                     st.text_area("Мәтін:", value=draft["draft_text"],
                                  height=200, disabled=True,
-                                 key=f"lost_{sid}")
+                                 key=f"lost_{s_id}")
                     st.info(
                         "💡 Мәтін бар — оқушының браузерінде **Тексеруге жіберу** "
                         "батырмасын қайта басыңыз. Немесе **Жаңарту** батырмасын "

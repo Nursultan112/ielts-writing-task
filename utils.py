@@ -288,6 +288,17 @@ body{{background:transparent;}}
   const ov    = document.getElementById('ov');
   const ovMsg = document.getElementById('ov-msg');
 
+  /* ── Таймер форматтау ── */
+  function fmt(s) {{
+    return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  }}
+
+  function setBar(msg,bg,bc,c,dc) {{
+    bar.style.background=bg; bar.style.borderColor=bc;
+    bar.style.color=c; dot.style.background=dc;
+    acTxt.textContent=msg;
+  }}
+
   /* Бастапқы таймер дисплейін қалпына келтірілген мәнмен жаңарту */
   tDisp.textContent = fmt(left);
   if (expired) {{
@@ -368,16 +379,18 @@ body{{background:transparent;}}
     }} catch(e) {{}}
   }}
 
-  /* ── Таймер форматтау ── */
-  function fmt(s) {{
-    return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-  }}
-
   /* ── Таймерді жалғастыру (iframe қайта жүктелгенде) ── */
   function _resumeTimer() {{
     timerID=setInterval(()=>{{
       if (annulled) {{clearInterval(timerID);return;}}
-      left--;
+      // Дрейфті болдырмау үшін localStorage-тегі нақты уақытқа сүйенеміз
+      const stored = localStorage.getItem(LS_START_KEY);
+      if (stored) {{
+        const elapsed = Math.floor((Date.now() - parseInt(stored,10)) / 1000);
+        left = Math.max(0, TOTAL - elapsed);
+      }} else {{
+        left--;
+      }}
       tDisp.textContent=fmt(left);
       tBox.className=left<=0?'done':left<=60?'red':left<=300?'yellow':'';
       if (left===60) {{
@@ -392,13 +405,7 @@ body{{background:transparent;}}
           '#FCEBEB','#E24B4A','#A32D2D','#E24B4A');
         logEv('timer_expired');
       }}
-    }},1000);
-  }}
-
-  function setBar(msg,bg,bc,c,dc) {{
-    bar.style.background=bg; bar.style.borderColor=bc;
-    bar.style.color=c; dot.style.background=dc;
-    acTxt.textContent=msg;
+    }},500);
   }}
 
   /* ── Дыбыс ── */
@@ -515,6 +522,7 @@ body{{background:transparent;}}
       await new Promise(r=>setTimeout(r,1000));
     }}
     if (ok) {{
+      localStorage.removeItem(LS_START_KEY); // сәтті submit — таймерді тазалаймыз
       ovMsg.textContent='✅ Сақталды! Тексерілуде...';
       saveEl.textContent='💾 '+new Date().toLocaleTimeString();
       await new Promise(r=>setTimeout(r,600));

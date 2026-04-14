@@ -95,6 +95,12 @@ if student_name.strip() and uploaded_file is not None:
         st.session_state[skey] = datetime.now().strftime("%Y%m%d%H%M%S")
     sid = st.session_state[skey]
 
+    # Суретті session_state-ке бірден сақтаймыз (rerun-да uploader reset болады)
+    if f"img_b64_{sid}" not in st.session_state:
+        uploaded_file.seek(0)
+        st.session_state[f"img_b64_{sid}"]  = base64.b64encode(uploaded_file.read()).decode()
+        st.session_state[f"img_mime_{sid}"] = uploaded_file.type or "image/jpeg"
+
     annul_key = f"annulled_{sid}"
     done_key  = f"done_{sid}"
     sub_key   = f"submitting_{sid}"
@@ -137,11 +143,15 @@ if student_name.strip() and uploaded_file is not None:
                 )
                 st.rerun()
 
-            # 2. Суретті base64-ке айналдырамыз
-            uploaded_file.seek(0)
-            img_bytes  = uploaded_file.read()
-            img_b64    = base64.b64encode(img_bytes).decode()
-            img_mime   = uploaded_file.type or "image/jpeg"
+            # 2. Суретті base64-ке айналдырамыз (session_state-тен аламыз — rerun-да жоғалмасын)
+            img_b64  = st.session_state.get(f"img_b64_{sid}")
+            img_mime = st.session_state.get(f"img_mime_{sid}", "image/jpeg")
+            if not img_b64:
+                uploaded_file.seek(0)
+                img_b64  = base64.b64encode(uploaded_file.read()).decode()
+                img_mime = uploaded_file.type or "image/jpeg"
+                st.session_state[f"img_b64_{sid}"]  = img_b64
+                st.session_state[f"img_mime_{sid}"] = img_mime
 
             # 3. Edge Function-ға жіберемыз
             # Streamlit CPU жұмсамайды — Supabase сервері Gemini шақырады
