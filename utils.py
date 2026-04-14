@@ -514,31 +514,26 @@ body{{background:transparent;}}
   essay.addEventListener('keyup',  onTextChange);
   essay.addEventListener('change', onTextChange);
 
-  essay.addEventListener('paste',()=>{{
+  essay.addEventListener('paste',(e)=>{{
+    e.preventDefault(); // paste мүлде жұмыс істемейді
     if (annulled) return;
     pasteCnt++;
-    setBar('Ескерту! Мәтін қою анықталды!',
-      '#FAEEDA','#EF9F27','#854F0B','#EF9F27');
+    setBar('⛔ Мәтін қою тыйым салынған!',
+      '#FCEBEB','#E24B4A','#A32D2D','#E24B4A');
     logEv('paste');
-    // paste кейін DOM жаңартылуын күтеміз
     setTimeout(()=>{{
-      onTextChange();
       if (!started&&!annulled&&essay.value.trim()) startTimer();
     }},150);
   }});
 
+  // Тек visibilitychange — шынымен басқа бетке өткенде ғана blur саналады.
+  // window blur алынып тасталды: scroll, бос жер басу, submit батырмасы —
+  // бұлардың барлығы blur тудырып, оқушыны әділетсіз жазалап жатқан.
   document.addEventListener('visibilitychange',()=>{{
     if (document.hidden) {{
       if (tBtnActive||submitting) return;
       onBlur();
     }} else onFocus();
-  }});
-  window.addEventListener('blur',()=>{{
-    setTimeout(()=>{{
-      if (tBtnActive||submitting) return;
-      if (document.activeElement?.tagName==='BUTTON') return;
-      onBlur();
-    }},100);
   }});
   window.addEventListener('focus', onFocus);
   document.getElementById('teacher-btn').addEventListener('click', sendToTeacher);

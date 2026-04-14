@@ -1,13 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import google.generativeai as genai
+import requests
 import time as _time
 from datetime import datetime
 
 from utils import (
-    get_supabase, get_latest_draft, save_result,
-    count_words, call_gemini_with_retry, show_result_page,
-    build_writing_html,
+    get_supabase, get_latest_draft,
+    show_result_page, build_writing_html,
 )
 
 st.set_page_config(page_title="TEN: IELTS Task 2", page_icon="✍️", layout="centered")
@@ -27,6 +26,47 @@ def writing_component(student_name: str, session_id: str):
         total_seconds=2400, min_words=250, height=300,
     )
     components.html(html, height=420)
+
+
+def call_edge(payload: dict) -> dict | None:
+    """Edge Function шақырады."""
+    url = st.secrets["supabase"]["url"].rstrip("/") + "/functions/v1/grade"
+    key = st.secrets["supabase"]["service_key"]
+    try:
+        resp = requests.post(
+            url, json=payload,
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json"},
+            timeout=120,
+        )
+        if resp.ok:
+            return resp.json()
+        st.error(f"Edge Function қатесі ({resp.status_code}): {resp.text}")
+    except Exception as e:
+        st.error(f"Байланыс қатесі: {e}")
+    return None
+
+
+def fetch_result_from_db(session_id: str) -> dict | None:
+    """results кестесінен нәтижені тікелей оқиды."""
+    try:
+        res = (get_supabase().table("results")
+               .select("*").eq("session_id", session_id)
+               .order("checked_at", desc=True).limit(1).execute())
+        if res.data:
+            r = res.data[0]
+            return {
+                "TR":          r.get("ta", 0),
+                "CC":          r.get("cc", 0),
+                "LR":          r.get("lr", 0),
+                "GRA":         r.get("gra", 0),
+                "overall":     r.get("overall", 0),
+                "main_errors": r.get("main_errors", []),
+                "feedback":    r.get("feedback", ""),
+            }
+    except Exception:
+        pass
+    return None
 
 
 # ──────────────────────────────────────────
@@ -71,10 +111,11 @@ if student_name.strip() and task_question.strip():
 
     if st.session_state[sub_key]:
         with st.spinner("⏳ Эссеңіз тексерілуде..."):
-            _time.sleep(3)
 
+            # 1. Мәтінді Supabase-тен аламыз (макс 25 сек)
+            _time.sleep(3)
             draft = None
-            for i in range(25):
+            for _ in range(25):
                 draft = get_latest_draft(sid)
                 if draft and draft.get("draft_text","").strip():
                     break
@@ -86,48 +127,35 @@ if student_name.strip() and task_question.strip():
                 st.session_state[sub_key] = False
                 st.error(
                     "⚠️ **Мәтін табылмады.**\n\n"
-                    "**Не істеу керек:**\n"
                     "1. Беттi жаңартпаңыз\n"
                     "2. **👁 Айнұр ұстазға көрсету** батырмасын басыңыз\n"
                     "3. ✅ деп шыққан соң — **Тексеруге жіберу** батырмасын қайта басыңыз"
                 )
                 st.rerun()
 
-            genai.configure(api_key=st.secrets["gemini"]["api_key"])
-            model = genai.GenerativeModel(
-                "gemini-2.5-flash",
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "max_output_tokens": 8000,
-                    "temperature": 0,
-                },
-            )
-            wc = count_words(essay_text)
-            prompt = f"""You are an expert and strict IELTS Writing Examiner. Evaluate the student's IELTS Academic Task 2 essay.
-CRITICAL RULES:
-The student's response is exactly {wc} words.
-- Under 100 words: max Overall 2.5
-- 100-149 words: max Overall 4.0
-- 150-239 words: max Overall 6.5, deduct up to 1.0 from TR
-- 240+ words: evaluate normally
-Score TR, CC, LR, GRA in 0.5 increments. Overall = average, round down to nearest 0.5.
-'main_errors' and 'feedback' MUST be in Kazakh. Quote the student's actual words.
-Return ONLY valid JSON, no markdown:
-{{"overall":0.0,"TR":0.0,"CC":0.0,"LR":0.0,"GRA":0.0,
-"main_errors":["қате 1","қате 2"],
-"feedback":"### 1. Task Response (Тақырыптың ашылуы): **[Score]**\\n* [...]\\n\\n### 2. Coherence and Cohesion: **[Score]**\\n* [...]\\n\\n### 3. Lexical Resource: **[Score]**\\n* [...]\\n\\n### 4. Grammatical Range and Accuracy: **[Score]**\\n* [...]\\n\\n---\\n### Қалай жақсартуға болады?\\n1. **[Кеңес 1]:** [...]\\n2. **[Кеңес 2]:** [...]\\n\\n**Қорытынды:** [...]"}}
+            # 2. Edge Function-ға жіберемыз
+            data = call_edge({
+                "session_id":    sid,
+                "student_name":  student_name.strip(),
+                "essay_text":    essay_text,
+                "task_type":     "Task 2",
+                "task_question": task_question,
+            })
 
-Essay topic: {task_question}"""
+            result = None
+            if data and data.get("status") in ("ok", "already_graded"):
+                result = data.get("result")
 
-            result = call_gemini_with_retry(model, [prompt, essay_text])
+            # 3. Fallback — DB-тен тікелей оқимыз
+            if not result:
+                result = fetch_result_from_db(sid)
 
-            if result:
+            if result and not st.session_state.get(done_key, False):
                 result["TR"]      = result.get("TR",      result.get("ta",      0))
                 result["CC"]      = result.get("CC",      result.get("cc",      0))
                 result["LR"]      = result.get("LR",      result.get("lr",      0))
                 result["GRA"]     = result.get("GRA",     result.get("gra",     0))
                 result["overall"] = result.get("overall", result.get("Overall", 0))
-                save_result(student_name.strip(), result, sid, "Task 2")
                 st.session_state[f"result_{sid}"] = result
                 st.session_state[f"essay_{sid}"]  = essay_text
                 st.session_state[done_key] = True
@@ -141,15 +169,14 @@ Essay topic: {task_question}"""
         st.subheader("3. Эссеңізді жазыңыз")
         st.caption("Жазуды бастағанда таймер автоматты қосылады. Уақыт: 40 минут. Минимум: 250 сөз.")
         writing_component(student_name.strip(), sid)
-
         st.info(
-            "💡 Жіберер алдында **👁 Айнұр ұстазға көрсету** батырмасын бір рет басыңыз — "
-            "мәтін сенімді сақталады.",
+            "💡 Жіберер алдында **👁 Айнұр ұстазға көрсету** батырмасын "
+            "бір рет басыңыз — мәтін сенімді сақталады.",
             icon="ℹ️",
         )
-
         if st.button("✅ Тексеруге жіберу", type="primary",
-                     use_container_width=True, key=f"sub2_{sid}"):
+                     use_container_width=True, key=f"sub2_{sid}",
+                     disabled=st.session_state.get(sub_key, False)):
             st.session_state[sub_key] = True
             st.rerun()
 
