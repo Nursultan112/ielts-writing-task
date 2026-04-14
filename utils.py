@@ -267,6 +267,16 @@ body{{background:transparent;}}
   let aCtx=null, aOsc=null, aGain=null;
   let tBtnActive=false, asID=null;
 
+  /* ── localStorage арқылы таймер state-ін қалпына келтіру ── */
+  const LS_START_KEY = 'timer_start_' + SESSION;
+  const storedStart  = localStorage.getItem(LS_START_KEY);
+  if (storedStart) {{
+    const elapsed = Math.floor((Date.now() - parseInt(storedStart, 10)) / 1000);
+    left    = Math.max(0, TOTAL - elapsed);
+    started = true;
+    expired = (left <= 0);
+  }}
+
   const tBox  = document.getElementById('timer-box');
   const tDisp = document.getElementById('timer-display');
   const dot   = document.getElementById('ac-dot');
@@ -277,6 +287,18 @@ body{{background:transparent;}}
   const saveEl= document.getElementById('save-status');
   const ov    = document.getElementById('ov');
   const ovMsg = document.getElementById('ov-msg');
+
+  /* Бастапқы таймер дисплейін қалпына келтірілген мәнмен жаңарту */
+  tDisp.textContent = fmt(left);
+  if (expired) {{
+    tBox.className='done'; tDisp.textContent='00:00';
+    setBar('Уақыт бітті! Жұмысыңызды жіберіңіз.',
+      '#FCEBEB','#E24B4A','#A32D2D','#E24B4A');
+  }} else if (started) {{
+    tBox.className = left<=60?'red':left<=300?'yellow':'';
+    /* Таймерді қайта іске қосу — iframe қайта жүктелді */
+    _resumeTimer();
+  }}
 
   const H = {{
     'apikey': SB_KEY,
@@ -346,6 +368,33 @@ body{{background:transparent;}}
     }} catch(e) {{}}
   }}
 
+  /* ── Таймер форматтау ── */
+  function fmt(s) {{
+    return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  }}
+
+  /* ── Таймерді жалғастыру (iframe қайта жүктелгенде) ── */
+  function _resumeTimer() {{
+    timerID=setInterval(()=>{{
+      if (annulled) {{clearInterval(timerID);return;}}
+      left--;
+      tDisp.textContent=fmt(left);
+      tBox.className=left<=0?'done':left<=60?'red':left<=300?'yellow':'';
+      if (left===60) {{
+        setBar('1 минут қалды! Жіберуге дайындалыңыз.',
+          '#FAEEDA','#EF9F27','#854F0B','#EF9F27');
+        logEv('timer_warning');
+      }}
+      if (left<=0) {{
+        clearInterval(timerID); expired=true;
+        tDisp.textContent='00:00';
+        setBar('Уақыт бітті! Жұмысыңызды жіберіңіз.',
+          '#FCEBEB','#E24B4A','#A32D2D','#E24B4A');
+        logEv('timer_expired');
+      }}
+    }},1000);
+  }}
+
   function setBar(msg,bg,bc,c,dc) {{
     bar.style.background=bg; bar.style.borderColor=bc;
     bar.style.color=c; dot.style.background=dc;
@@ -386,6 +435,7 @@ body{{background:transparent;}}
     annulled=true;
     if (timerID) clearInterval(timerID);
     if (asID)    clearInterval(asID);
+    localStorage.removeItem(LS_START_KEY);
     stopAlarm();
     essay.disabled=true;
     setBar('ЖҰМЫС АННУЛИРЛЕНДІ — мұғалімге хабарланды',
@@ -395,32 +445,13 @@ body{{background:transparent;}}
   }}
 
   /* ── Таймер ── */
-  function fmt(s) {{
-    return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-  }}
   function startTimer() {{
     if (started) return;
     started=true;
+    localStorage.setItem(LS_START_KEY, Date.now().toString());
     logEv('timer_start');
     startAutoSave();
-    timerID=setInterval(()=>{{
-      if (annulled) {{clearInterval(timerID);return;}}
-      left--;
-      tDisp.textContent=fmt(left);
-      tBox.className=left<=0?'done':left<=60?'red':left<=300?'yellow':'';
-      if (left===60) {{
-        setBar('1 минут қалды! Жіберуге дайындалыңыз.',
-          '#FAEEDA','#EF9F27','#854F0B','#EF9F27');
-        logEv('timer_warning');
-      }}
-      if (left<=0) {{
-        clearInterval(timerID); expired=true;
-        tDisp.textContent='00:00';
-        setBar('Уақыт бітті! Жұмысыңызды жіберіңіз.',
-          '#FCEBEB','#E24B4A','#A32D2D','#E24B4A');
-        logEv('timer_expired');
-      }}
-    }},1000);
+    _resumeTimer();
   }}
 
   /* ── Blur ── */
