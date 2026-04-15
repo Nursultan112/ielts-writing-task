@@ -242,7 +242,7 @@ body{{background:transparent;}}
     <div id="timer-display">{timer_init}</div>
   </div>
 </div>
-<textarea id="essay-box" placeholder="Жауабыңызды осында теріңіз..."></textarea>
+<textarea id="essay-box" placeholder="Жауабыңызды осында теріңіз..." oninput="if(window._onTextChange)window._onTextChange()"></textarea>
 <div id="bottom-bar">
   <span id="word-count">0 сөз</span>
   <div style="display:flex;align-items:center;gap:8px;">
@@ -536,15 +536,25 @@ body{{background:transparent;}}
   }};
 
   /* ── Textarea: input/keyup/change барлығы таймер қосады ── */
+  let _lastVal = '';
   function onTextChange() {{
     const words=(essay.value.match(/\b\w+\b/g)||[]).length;
     wcEl.textContent=words+' сөз';
     wcEl.style.color=words>=MIN_W?'#3B6D11':words>=Math.round(MIN_W*.6)?'#854F0B':'#A32D2D';
     if (!started&&!annulled&&words>0) startTimer();
   }}
+  window._onTextChange = onTextChange;
   essay.addEventListener('input',  onTextChange);
   essay.addEventListener('keyup',  onTextChange);
   essay.addEventListener('change', onTextChange);
+  essay.addEventListener('compositionend', onTextChange);
+  /* ── Polling: мобильде/iframe-де event өтпесе де сөзді санайды ── */
+  setInterval(()=>{{
+    if (essay.value !== _lastVal) {{
+      _lastVal = essay.value;
+      onTextChange();
+    }}
+  }}, 500);
 
   essay.addEventListener('paste',(e)=>{{
     e.preventDefault(); // paste мүлде жұмыс істемейді
