@@ -63,7 +63,43 @@ def fetch_all_drafts():
         return []
 
 
-def reload_all():
+def fetch_students() -> list:
+    """students кестесінен оқушылар тізімін оқиды."""
+    try:
+        res = (get_supabase().table("students")
+               .select("*").order("name").execute())
+        return res.data or []
+    except Exception:
+        return []
+
+
+def add_student(name: str) -> bool:
+    try:
+        get_supabase().table("students").insert({"name": name.strip()}).execute()
+        return True
+    except Exception:
+        return False
+
+
+def delete_student(student_id: int) -> bool:
+    try:
+        get_supabase().table("students").delete().eq("id", student_id).execute()
+        return True
+    except Exception:
+        return False
+
+
+def fetch_results_for_journal() -> list:
+    """Барлық нәтижелерді оқиды (журнал үшін)."""
+    try:
+        res = (get_supabase().table("results")
+               .select("*").order("checked_at", desc=True).execute())
+        return res.data or []
+    except Exception:
+        return []
+
+
+
     st.session_state["drafts"]     = fetch_live_drafts()
     st.session_state["ac"]         = fetch_anticheat()
     st.session_state["results"]    = fetch_results()
@@ -146,12 +182,13 @@ st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 # ҚОЙЫНДЫЛАР
 # ─────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "👁 Live",
     "🔴 Античит",
     "📊 Нәтижелер",
     "📈 Статистика",
     "⚠️ Жоғалған жұмыстар",
+    "📓 Журнал",
 ])
 
 
@@ -440,6 +477,285 @@ with tab4:
 # ─────────────────────────────────────────
 # ТАБ 5: ЖОҒАЛҒАН ЖҰМЫСТАР  ← ЖАҢА
 # ─────────────────────────────────────────
+
+with tab6:
+    st.markdown("### 📓 Оқушылар журналы")
+
+    # ── Оқушы қосу ──────────────────────────────
+    with st.expander("➕ Оқушы қосу / өшіру", expanded=False):
+        col_add1, col_add2 = st.columns([4, 1])
+        with col_add1:
+            new_name = st.text_input("Оқушының аты-жөні:",
+                                     placeholder="Мысалы: Айгерім Сейтқали",
+                                     key="new_student_name",
+                                     label_visibility="collapsed")
+        with col_add2:
+            if st.button("➕ Қосу", use_container_width=True, key="add_student_btn"):
+                if new_name.strip():
+                    ok = add_student(new_name.strip())
+                    if ok:
+                        st.success(f"✅ {new_name.strip()} қосылды")
+                        st.rerun()
+                    else:
+                        st.error("Қате болды. Қайталаңыз.")
+                else:
+                    st.warning("Аты-жөнді енгізіңіз.")
+
+        students_list = fetch_students()
+        if students_list:
+            st.markdown("**Тіркелген оқушылар:**")
+            for s in students_list:
+                sc1, sc2 = st.columns([6, 1])
+                sc1.markdown(f"👤 {s['name']}")
+                if sc2.button("🗑", key=f"del_{s['id']}", help="Өшіру"):
+                    delete_student(s["id"])
+                    st.rerun()
+        else:
+            st.info("Оқушылар тізімі бос.")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ── Деректерді жүктеу ──────────────────────
+    students_all  = fetch_students()
+    journal_res   = fetch_results_for_journal()
+
+    if not students_all:
+        st.info("Алдымен оқушыларды қосыңыз (жоғарыдағы «Оқушы қосу» бөліміне өтіңіз).")
+        st.stop()
+
+    # results-ті оқушы атына қарай сөздікке топтаймыз
+    from collections import defaultdict
+    student_results: dict = defaultdict(list)
+    for r in journal_res:
+        n = (r.get("student_name") or "").strip()
+        if n:
+            student_results[n].append(r)
+
+    # ── Журнал кестесі ─────────────────────────
+    st.markdown("#### 📋 Жиынтық кесте")
+
+    def safe_float(v):
+        try: return float(v)
+        except Exception: return None
+
+    table_rows = []
+    for s in students_all:
+        name = s["name"]
+        res_list = student_results.get(name, [])
+        t1 = [r for r in res_list if r.get("task_type") == "Task 1"]
+        t2 = [r for r in res_list if r.get("task_type") == "Task 2"]
+
+        def last_overall(lst):
+            vals = [safe_float(r.get("overall")) for r in lst if safe_float(r.get("overall")) is not None]
+            return vals[0] if vals else None  # desc сортталған, бірінші = соңғы
+
+        def avg_overall(lst):
+            vals = [safe_float(r.get("overall")) for r in lst if safe_float(r.get("overall")) is not None]
+            return round(sum(vals)/len(vals), 1) if vals else None
+
+        def last_date(lst):
+            if not lst: return "—"
+            d = (lst[0].get("checked_at") or "")[:16].replace("T", " ")
+            return d or "—"
+
+        table_rows.append({
+            "Оқушы":          name,
+            "T1 соңғы":       last_overall(t1) or "—",
+            "T1 орта":        avg_overall(t1) or "—",
+            "T1 саны":        len(t1),
+            "T2 соңғы":       last_overall(t2) or "—",
+            "T2 орта":        avg_overall(t2) or "—",
+            "T2 саны":        len(t2),
+            "Соңғы тапсырма": last_date(sorted(res_list,
+                                key=lambda x: x.get("checked_at",""), reverse=True)),
+        })
+
+    df = pd.DataFrame(table_rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # ── Оқушы таңдап, прогресс графигін көру ───
+    st.markdown("---")
+    st.markdown("#### 📈 Оқушының прогресі")
+
+    sel_student = st.selectbox(
+        "Оқушыны таңдаңыз:",
+        [s["name"] for s in students_all],
+        key="journal_student_sel",
+    )
+
+    sel_task = st.radio(
+        "Тапсырма түрі:",
+        ["Task 1", "Task 2", "Екеуі де"],
+        horizontal=True,
+        key="journal_task_sel",
+    )
+
+    s_results = student_results.get(sel_student, [])
+    if sel_task != "Екеуі де":
+        s_results = [r for r in s_results if r.get("task_type") == sel_task]
+
+    if not s_results:
+        st.info(f"«{sel_student}» үшін нәтиже жоқ.")
+    else:
+        # Хронологиялық ретке келтіреміз
+        s_results_sorted = sorted(s_results, key=lambda x: x.get("checked_at",""))
+
+        import json as _json
+
+        # Plotly-сіз таза HTML + Chart.js арқылы
+        labels  = []
+        overall = []
+        ta_vals = []
+        cc_vals = []
+        lr_vals = []
+        gra_vals= []
+        colors  = []
+
+        for r in s_results_sorted:
+            dt  = (r.get("checked_at") or "")[:16].replace("T", " ")
+            tt  = r.get("task_type","T1")
+            lbl = f"{tt} · {dt}"
+            labels.append(lbl)
+            ov  = safe_float(r.get("overall"))
+            overall.append(ov if ov is not None else "null")
+            ta_vals.append(safe_float(r.get("ta")) or "null")
+            cc_vals.append(safe_float(r.get("cc")) or "null")
+            lr_vals.append(safe_float(r.get("lr")) or "null")
+            gra_vals.append(safe_float(r.get("gra")) or "null")
+            colors.append("#639922" if tt=="Task 1" else "#378ADD")
+
+        import streamlit.components.v1 as _comp
+        chart_html = f"""
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<div style="background:white;border-radius:12px;padding:16px;">
+  <canvas id="progressChart" height="120"></canvas>
+</div>
+<script>
+const ctx = document.getElementById('progressChart').getContext('2d');
+new Chart(ctx, {{
+  type: 'line',
+  data: {{
+    labels: {_json.dumps(labels)},
+    datasets: [
+      {{
+        label: 'Overall',
+        data: {overall},
+        borderColor: '#27500A',
+        backgroundColor: 'rgba(39,80,10,0.08)',
+        borderWidth: 2.5,
+        pointRadius: 5,
+        tension: 0.3,
+        fill: true,
+      }},
+      {{
+        label: 'TA/TR',
+        data: {ta_vals},
+        borderColor: '#639922',
+        borderWidth: 1.5,
+        pointRadius: 3,
+        tension: 0.3,
+        borderDash: [4,3],
+      }},
+      {{
+        label: 'CC',
+        data: {cc_vals},
+        borderColor: '#EF9F27',
+        borderWidth: 1.5,
+        pointRadius: 3,
+        tension: 0.3,
+        borderDash: [4,3],
+      }},
+      {{
+        label: 'LR',
+        data: {lr_vals},
+        borderColor: '#378ADD',
+        borderWidth: 1.5,
+        pointRadius: 3,
+        tension: 0.3,
+        borderDash: [4,3],
+      }},
+      {{
+        label: 'GRA',
+        data: {gra_vals},
+        borderColor: '#9B59B6',
+        borderWidth: 1.5,
+        pointRadius: 3,
+        tension: 0.3,
+        borderDash: [4,3],
+      }},
+    ]
+  }},
+  options: {{
+    responsive: true,
+    plugins: {{
+      legend: {{ position: 'bottom' }},
+      title: {{
+        display: true,
+        text: '{sel_student} — прогресі',
+        font: {{ size: 14 }},
+      }}
+    }},
+    scales: {{
+      y: {{
+        min: 3,
+        max: 9,
+        ticks: {{ stepSize: 0.5 }},
+        grid: {{ color: '#f0f0f0' }},
+      }},
+      x: {{
+        ticks: {{ maxRotation: 30, font: {{ size: 10 }} }},
+      }}
+    }}
+  }}
+}});
+</script>"""
+        _comp.html(chart_html, height=340)
+
+        # ── Толық тарих ──────────────────────
+        st.markdown("**Толық тарих:**")
+        for r in reversed(s_results_sorted):
+            ov   = r.get("overall","—")
+            ta   = r.get("ta","—")
+            cc   = r.get("cc","—")
+            lr   = r.get("lr","—")
+            gra  = r.get("gra","—")
+            tt   = r.get("task_type","—")
+            dt   = (r.get("checked_at","") or "")[:16].replace("T"," ")
+            badge = "🟣" if tt=="Task 1" else "🔵"
+            try:
+                ov_f = float(ov)
+                oc = "#27500A" if ov_f>=7 else "#854F0B" if ov_f>=6 else "#A32D2D"
+                ob = "#EAF3DE" if ov_f>=7 else "#FAEEDA" if ov_f>=6 else "#FCEBEB"
+            except Exception:
+                oc, ob = "#3C3489","#EEEDFE"
+
+            with st.expander(f"{badge} {tt} · Overall: **{ov}** · {dt}"):
+                st.markdown(f"""
+                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+                  <div style="background:{ob};border-radius:8px;padding:10px;text-align:center;">
+                    <p style="margin:0 0 2px;font-size:11px;color:{oc};">Overall</p>
+                    <p style="margin:0;font-size:20px;font-weight:600;color:{oc};">{ov}</p>
+                  </div>
+                  <div style="background:#F4F4F4;border-radius:8px;padding:10px;text-align:center;">
+                    <p style="margin:0 0 2px;font-size:11px;color:#555;">TA/TR</p>
+                    <p style="margin:0;font-size:20px;font-weight:600;">{ta}</p>
+                  </div>
+                  <div style="background:#F4F4F4;border-radius:8px;padding:10px;text-align:center;">
+                    <p style="margin:0 0 2px;font-size:11px;color:#555;">CC</p>
+                    <p style="margin:0;font-size:20px;font-weight:600;">{cc}</p>
+                  </div>
+                  <div style="background:#F4F4F4;border-radius:8px;padding:10px;text-align:center;">
+                    <p style="margin:0 0 2px;font-size:11px;color:#555;">LR</p>
+                    <p style="margin:0;font-size:20px;font-weight:600;">{lr}</p>
+                  </div>
+                  <div style="background:#F4F4F4;border-radius:8px;padding:10px;text-align:center;">
+                    <p style="margin:0 0 2px;font-size:11px;color:#555;">GRA</p>
+                    <p style="margin:0;font-size:20px;font-weight:600;">{gra}</p>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+                fb = r.get("feedback","")
+                if fb:
+                    st.info(fb)
 
 with tab5:
     st.markdown("### ⚠️ Жоғалған жұмыстар")

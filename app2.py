@@ -9,6 +9,15 @@ from utils import (
     show_result_page, build_writing_html,
 )
 
+
+@st.cache_data(ttl=300)
+def fetch_student_names() -> list[str]:
+    try:
+        res = get_supabase().table("students").select("name").order("name").execute()
+        return [r["name"] for r in (res.data or [])]
+    except Exception:
+        return []
+
 st.set_page_config(page_title="TEN: IELTS Task 2", page_icon="✍️", layout="centered")
 st.markdown("""
 <style>
@@ -74,9 +83,16 @@ st.title("✍️ IELTS Writing Task 2")
 st.caption("Тапсырманы оқып, эссеңізді жазыңыз.")
 st.markdown("---")
 
-st.subheader("1. Аты-жөніңізді жазыңыз")
-student_name = st.text_input("", placeholder="Мысалы: Айгерім Сейтқали",
-                              label_visibility="collapsed")
+st.subheader("1. Атыңызды таңдаңыз")
+student_names = fetch_student_names()
+if student_names:
+    student_name = st.selectbox("", ["— Атыңызды таңдаңыз —"] + student_names,
+                                 label_visibility="collapsed")
+    if student_name == "— Атыңызды таңдаңыз —":
+        student_name = ""
+else:
+    student_name = st.text_input("", placeholder="Мысалы: Айгерім Сейтқали",
+                                  label_visibility="collapsed")
 
 st.subheader("2. Тапсырманы енгізіңіз")
 task_question = st.text_area("", height=120,

@@ -1,0 +1,14 @@
+# Streamlit secrets — бұл файлды GitHub-қа жүктемеңіз!
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
